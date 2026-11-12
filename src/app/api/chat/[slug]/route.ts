@@ -34,6 +34,7 @@ function systemPrompt(store: { name: string; currency: string; tagline: string |
     "After create_checkout succeeds, say one short line telling them to click the Pay with PayPal button. Never paste links or URLs; the UI shows the button. You never take payment yourself.",
     "If a tool says something is unavailable or blocked, explain briefly and suggest alternatives.",
     "Be warm and concise: 1-3 short sentences. The UI already shows product cards, so don't repeat every detail.",
+    "Formatting: plain text, **bold** and short '- ' bullet lists only. Never use tables, headings or code blocks.",
   ].join("\n");
 }
 
