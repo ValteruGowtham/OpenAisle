@@ -49,21 +49,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   const messages = (body?.messages ?? []).slice(-MAX_HISTORY);
   if (messages.length === 0) return Response.json({ error: "No messages" }, { status: 400 });
 
-  const tools = buildAiTools(slug, { channel: "WEB_AGENT", agentClient: "web-chat" });
-
-  // Hard guard for "confirm items and total before create_checkout": the checkout tool is only
-  // offered once the buyer replies affirmatively (the prompt makes the model summarize + ask first).
-  const allowCheckout = AFFIRMATIVE.test(lastUserText(messages));
-  const activeTools = (Object.keys(tools) as (keyof typeof tools)[]).filter(
-    (name) => name !== "create_checkout" || allowCheckout,
-  );
+  // Hard guard for "confirm items and total before create_checkout". The tool stays available
+  // (hiding it makes the model call it anyway, and Groq rejects that with a 400); until the buyer's
+  // latest message is an explicit yes, it only returns a DB-priced preview and creates nothing.
+  const confirmed = AFFIRMATIVE.test(lastUserText(messages));
+  const tools = buildAiTools(slug, {
+    channel: "WEB_AGENT",
+    agentClient: "web-chat",
+    requireConfirmation: !confirmed,
+  });
 
   const result = streamText({
     model: getChatModel(),
     system: systemPrompt(store),
     messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
     tools,
-    activeTools,
     stopWhen: isStepCount(5),
     maxRetries: 1,
     providerOptions: { groq: { reasoningEffort: "low" } },

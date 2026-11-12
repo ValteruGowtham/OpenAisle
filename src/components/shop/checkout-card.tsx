@@ -116,7 +116,37 @@ export function CheckoutCard({ slug, checkout }: { slug: string; checkout: Check
   );
 }
 
-function LineItems({ checkout, money }: { checkout: Checkout; money: (v: string) => string }) {
+/** Priced preview shown before the buyer confirms (no order exists yet). */
+export function OrderSummaryCard({
+  items,
+  total,
+  currency,
+}: {
+  items: CheckoutLine[];
+  total: string;
+  currency: string;
+}) {
+  const money = (v: string) => formatMoney(toCents(v), currency);
+  return (
+    <div className="w-full max-w-[88%] overflow-hidden rounded-xl border border-dashed bg-card">
+      <div className="border-b border-dashed px-4 py-2.5 text-sm font-semibold">Order summary</div>
+      <LineItems checkout={{ items }} money={money} />
+      <div className="flex justify-between border-t border-dashed px-4 py-2.5 text-sm font-semibold">
+        <span>Total</span>
+        <span className="tabular-nums">{money(total)}</span>
+      </div>
+      <p className="px-4 pb-3 text-[11px] text-muted-foreground">Reply &ldquo;yes&rdquo; to check out with PayPal.</p>
+    </div>
+  );
+}
+
+function LineItems({
+  checkout,
+  money,
+}: {
+  checkout: Pick<Checkout, "items">;
+  money: (v: string) => string;
+}) {
   return (
     <ul className="flex flex-col gap-1.5 px-4 py-3">
       {checkout.items.map((it) => (

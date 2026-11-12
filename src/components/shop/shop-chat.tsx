@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StoreTools } from "@/lib/store-tools";
 import { cn } from "@/lib/utils";
-import { CheckoutCard } from "./checkout-card";
+import { CheckoutCard, OrderSummaryCard } from "./checkout-card";
 import { ChatProductCard } from "./chat-product-card";
 
 export type ShopUIMessage = UIMessage<never, UIDataTypes, InferUITools<StoreTools>>;
@@ -193,6 +193,9 @@ function ToolPartView({ part, slug }: { part: ToolPart; slug: string }) {
     }
     case "tool-create_checkout": {
       const out = part.output;
+      if (!out.ok && out.needs_confirmation) {
+        return <OrderSummaryCard items={out.items} total={out.total} currency={out.currency} />;
+      }
       if (!out.ok) {
         return (
           <div className="flex max-w-[88%] items-start gap-2 rounded-xl border border-dashed px-3 py-2 text-xs text-muted-foreground">

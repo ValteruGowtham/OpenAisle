@@ -17,6 +17,11 @@ export type ToolCtx = {
   agentClient?: string;
   /** Set false for UI polling so the live feed isn't flooded. */
   log?: boolean;
+  /**
+   * When true, create_checkout only returns a priced preview and asks for confirmation instead of
+   * creating an order (web chat sets this until the buyer's latest message is an explicit yes).
+   */
+  requireConfirmation?: boolean;
 };
 
 export class StoreNotFoundError extends Error {
@@ -197,7 +202,8 @@ export type CheckoutLine = { sku: string; title: string; quantity: number; unit_
 
 export type CreateCheckoutResult =
   | { ok: true; order_ref: string; items: CheckoutLine[]; total: string; currency: string; approve_url: string }
-  | { ok: false; reason: string };
+  | { ok: false; needs_confirmation: true; items: CheckoutLine[]; total: string; currency: string; reason: string }
+  | { ok: false; needs_confirmation?: false; reason: string };
 
 export async function createCheckout(
   slug: string,
@@ -261,6 +267,26 @@ export async function createCheckout(
     line_total: fromCents(l.lineCents),
   }));
   const total = fromCents(totalCents);
+
+  // Buyer hasn't explicitly confirmed yet: return a DB-priced preview, create nothing.
+  if (ctx.requireConfirmation) {
+    if (ctx.log !== false) {
+      await logEvent({
+        storeId: store.id,
+        type: "VIEW",
+        channel: ctx.channel,
+        payload: { tool: "create_checkout", stage: "awaiting_confirmation", total, agentClient: ctx.agentClient ?? null },
+      });
+    }
+    return {
+      ok: false,
+      needs_confirmation: true,
+      items,
+      total,
+      currency: store.currency,
+      reason: "Not created yet. Show the buyer these items and the total, and ask them to confirm. Call create_checkout again after they say yes.",
+    };
+  }
 
   // Reserve an order ref first (placeholder PayPal id), then create the PayPal order.
   let order: { id: string; ref: string } | null = null;
