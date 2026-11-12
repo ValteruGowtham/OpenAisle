@@ -25,6 +25,51 @@ const hasIssue = (err: unknown, issue: string) =>
   (err.details as { issue?: string }[]).some((d) => d.issue === issue);
 
 /**
+ * Mark an order paid. Shared by the PayPal return page and the webhook, and idempotent: a
+ * conditional update lets exactly one caller win the CREATED/APPROVED -> COMPLETED transition, and
+ * only that caller decrements stock and logs PAYMENT_CAPTURED. Returns true if this call did it.
+ */
+export async function markOrderCaptured(
+  orderId: string,
+  { captureId, buyerEmail, source }: { captureId: string; buyerEmail: string | null; source: "return_page" | "webhook" },
+): Promise<boolean> {
+  const db = getDb();
+  const order = await db.order.findUniqueOrThrow({ where: { id: orderId } });
+  const items = order.items as CheckoutLine[];
+
+  return db.$transaction(async (tx) => {
+    const { count } = await tx.order.updateMany({
+      where: { id: order.id, status: { in: ["CREATED", "APPROVED"] } },
+      data: { status: "COMPLETED", captureId, ...(buyerEmail ? { buyerEmail } : {}) },
+    });
+    if (count !== 1) return false;
+
+    for (const it of items) {
+      await tx.product.updateMany({
+        where: { storeId: order.storeId, sku: it.sku, stock: { gte: it.quantity } },
+        data: { stock: { decrement: it.quantity } },
+      });
+    }
+    await tx.agentEvent.create({
+      data: {
+        storeId: order.storeId,
+        type: "PAYMENT_CAPTURED",
+        channel: order.channel,
+        payload: {
+          order_ref: order.ref,
+          total: fromCents(toCents(order.total)),
+          currency: order.currency,
+          capture_id: captureId,
+          agentClient: order.agentClient,
+          source,
+        },
+      },
+    });
+    return true;
+  });
+}
+
+/**
  * Capture a PayPal order after buyer approval. Idempotent: safe on refresh, double-submit or a
  * racing webhook. Only the request that flips the order to COMPLETED logs the event and adjusts stock.
  */
@@ -72,37 +117,10 @@ export async function captureCheckout(slug: string, paypalOrderId: string): Prom
     return { kind: "pending", orderRef: order.ref, status: capture?.status ?? pp.status };
   }
 
-  const buyerEmail = pp.payer?.email_address ?? null;
-  const items = order.items as CheckoutLine[];
-
-  await db.$transaction(async (tx) => {
-    // Conditional update: only one request can win the CREATED/APPROVED -> COMPLETED transition.
-    const { count } = await tx.order.updateMany({
-      where: { id: order.id, status: { in: ["CREATED", "APPROVED"] } },
-      data: { status: "COMPLETED", captureId: capture.id, buyerEmail },
-    });
-    if (count !== 1) return;
-
-    for (const it of items) {
-      await tx.product.updateMany({
-        where: { storeId: order.storeId, sku: it.sku, stock: { gte: it.quantity } },
-        data: { stock: { decrement: it.quantity } },
-      });
-    }
-    await tx.agentEvent.create({
-      data: {
-        storeId: order.storeId,
-        type: "PAYMENT_CAPTURED",
-        channel: order.channel,
-        payload: {
-          order_ref: order.ref,
-          total: fromCents(toCents(order.total)),
-          currency: order.currency,
-          capture_id: capture.id,
-          agentClient: order.agentClient,
-        },
-      },
-    });
+  await markOrderCaptured(order.id, {
+    captureId: capture.id,
+    buyerEmail: pp.payer?.email_address ?? null,
+    source: "return_page",
   });
 
   const fresh = await db.order.findUniqueOrThrow({

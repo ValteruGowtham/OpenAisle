@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { appUrl } from "@/lib/urls";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,6 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(appUrl()),
   title: "OpenAisle: make any shop buyable by AI agents",
   description:
     "Turn a messy catalog into an agent-ready store with a remote MCP endpoint, a Shop-with-AI chat, and PayPal checkout.",
