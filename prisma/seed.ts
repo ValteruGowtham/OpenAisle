@@ -1,5 +1,6 @@
 import { config } from "dotenv";
 import { createPgAdapter } from "../src/lib/pg-adapter";
+import { swatchUrl } from "../src/lib/swatch";
 import { PrismaClient } from "../src/generated/prisma/client";
 
 config({ path: ".env.local" });
@@ -13,7 +14,7 @@ if (!connectionString) {
 const prisma = new PrismaClient({ adapter: createPgAdapter(connectionString) });
 
 const SLUG = "kaveri-handlooms";
-const img = (sku: string) => `https://picsum.photos/seed/${sku.toLowerCase()}/800/800`;
+// Generated textile swatches served by /api/swatch (no third-party image host needed).
 
 type SeedProduct = {
   sku: string;
@@ -226,7 +227,7 @@ async function main() {
     prisma.order.deleteMany({ where: { storeId: store.id } }),
     prisma.product.deleteMany({ where: { storeId: store.id } }),
     prisma.product.createMany({
-      data: products.map((p) => ({ ...p, storeId: store.id, imageUrl: img(p.sku) })),
+      data: products.map((p) => ({ ...p, storeId: store.id, imageUrl: swatchUrl(p.sku, { title: p.title, color: p.attributes.color }) })),
     }),
   ]);
 

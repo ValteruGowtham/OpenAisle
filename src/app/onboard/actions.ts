@@ -4,8 +4,10 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { PublishInputSchema, slugify, type PublishInput } from "@/lib/catalog";
 import { fromCents, toCents } from "@/lib/money";
+import { swatchUrl } from "@/lib/swatch";
 
-const imageFor = (sku: string) => `https://picsum.photos/seed/${encodeURIComponent(sku.toLowerCase())}/800/800`;
+const imageFor = (p: { sku: string; title: string; attributes: { color: string | null } }) =>
+  swatchUrl(p.sku, { title: p.title, color: p.attributes.color });
 
 export async function publishStore(input: PublishInput): Promise<{ error: string } | void> {
   const parsed = PublishInputSchema.safeParse(input);
@@ -39,7 +41,7 @@ export async function publishStore(input: PublishInput): Promise<{ error: string
             stock: p.stock,
             tags: p.tags,
             attributes: Object.fromEntries(Object.entries(p.attributes).filter(([, v]) => v)),
-            imageUrl: p.imageUrl ?? imageFor(p.sku),
+            imageUrl: p.imageUrl ?? imageFor(p),
           })),
         },
       },

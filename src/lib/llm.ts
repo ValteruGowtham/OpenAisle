@@ -1,6 +1,12 @@
 import { groq } from "@ai-sdk/groq";
 import { google } from "@ai-sdk/google";
-import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } from "ai";
+import {
+  APICallError,
+  NoObjectGeneratedError,
+  RetryError,
+  wrapLanguageModel,
+  type LanguageModel,
+} from "ai";
 
 /** Primary model (Groq free tier). */
 export const PRIMARY_MODEL_ID = "openai/gpt-oss-120b";
@@ -19,6 +25,40 @@ export function getFallbackModel(): LanguageModel {
 }
 
 export type ModelMeta = { provider: "groq" | "google"; modelId: string; fallback: boolean };
+
+/**
+ * Model for streaming chat: Groq, transparently falling back to Gemini when Groq fails before
+ * streaming starts (429 rate limit / 5xx). `withFallback` can't wrap a stream, so this does it at
+ * the model layer via middleware: same params, different provider.
+ */
+export function getChatModel(): LanguageModel {
+  const fallback = google(FALLBACK_MODEL_ID);
+  if (!process.env.GROQ_API_KEY) return fallback;
+
+  return wrapLanguageModel({
+    model: groq(PRIMARY_MODEL_ID),
+    middleware: {
+      wrapGenerate: async ({ doGenerate, params }) => {
+        try {
+          return await doGenerate();
+        } catch (err) {
+          if (!isRateLimitOrServerError(err)) throw err;
+          console.warn(`[llm] Groq ${statusOf(err)} on generate, falling back to ${FALLBACK_MODEL_ID}`);
+          return fallback.doGenerate(params);
+        }
+      },
+      wrapStream: async ({ doStream, params }) => {
+        try {
+          return await doStream();
+        } catch (err) {
+          if (!isRateLimitOrServerError(err)) throw err;
+          console.warn(`[llm] Groq ${statusOf(err)} on stream, falling back to ${FALLBACK_MODEL_ID}`);
+          return fallback.doStream(params);
+        }
+      },
+    },
+  });
+}
 
 function statusOf(err: unknown): number | undefined {
   if (APICallError.isInstance(err)) return err.statusCode;

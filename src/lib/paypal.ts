@@ -158,7 +158,10 @@ export type OrderItemInput = {
 export type CreateOrderInput = {
   items: OrderItemInput[];
   currency: string;
+  /** Human order ref shown to the buyer (e.g. OA-1001). */
   referenceId: string;
+  /** Globally unique id (our DB order id): used for invoice_id + idempotency key. */
+  idempotencyKey: string;
   returnUrl: string;
   cancelUrl: string;
   brandName?: string;
@@ -171,13 +174,15 @@ export async function createOrder(input: CreateOrderInput) {
 
   const order = await paypalFetch<PayPalOrder>("/v2/checkout/orders", {
     method: "POST",
-    requestId: `create-${input.referenceId}`,
+    requestId: `create-${input.idempotencyKey}`,
     body: {
       intent: "CAPTURE",
       purchase_units: [
         {
           reference_id: input.referenceId,
-          invoice_id: input.referenceId,
+          // invoice_id must be unique per merchant account; refs can repeat after a re-seed.
+          invoice_id: `${input.referenceId}-${input.idempotencyKey}`.slice(0, 127),
+          custom_id: input.idempotencyKey,
           description: input.description?.slice(0, 127),
           amount: {
             currency_code: input.currency,
