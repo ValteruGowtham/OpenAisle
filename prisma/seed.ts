@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { createPgAdapter } from "../src/lib/pg-adapter";
 import { PrismaClient } from "../src/generated/prisma/client";
 
 config({ path: ".env.local" });
@@ -10,7 +10,7 @@ if (!connectionString) {
   process.exit(1);
 }
 
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+const prisma = new PrismaClient({ adapter: createPgAdapter(connectionString) });
 
 const SLUG = "kaveri-handlooms";
 const img = (sku: string) => `https://picsum.photos/seed/${sku.toLowerCase()}/800/800`;
