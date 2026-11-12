@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { toast } from "sonner";
-import { Check, Copy, FileText, PlugZap } from "lucide-react";
+import { FileText, PlugZap } from "lucide-react";
+import { CopyBlock } from "@/components/copy-block";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,61 +12,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-/** Clipboard API first; falls back to execCommand where the API is blocked (iframes, http, embedded browsers). */
-async function copyText(value: string) {
-  try {
-    await navigator.clipboard.writeText(value);
-    return;
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = value;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    if (!ok) throw new Error("copy failed");
-  }
-}
-
-function CopyBlock({ label, value, code = false }: { label: string; value: string; code?: boolean }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await copyText(value);
-      setCopied(true);
-      toast.success(`${label} copied`);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Couldn't copy. Select the text and copy it manually.");
-    }
-  }
-
-  return (
-    <div className="relative rounded-lg border bg-muted/50">
-      <pre
-        className={`max-h-56 overflow-auto p-3 pr-12 font-mono text-xs leading-relaxed ${
-          code ? "whitespace-pre" : "whitespace-pre-wrap [overflow-wrap:anywhere]"
-        }`}
-      >
-        {value}
-      </pre>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="absolute top-1.5 right-1.5 size-8"
-        onClick={copy}
-        aria-label={`Copy ${label}`}
-      >
-        {copied ? <Check className="text-emerald-600" /> : <Copy />}
-      </Button>
-    </div>
-  );
-}
 
 export function ConnectAiDialog({
   storeName,

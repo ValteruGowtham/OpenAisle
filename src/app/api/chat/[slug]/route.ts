@@ -46,7 +46,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   });
   if (!store) return Response.json({ error: "Store not found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => null)) as { messages?: UIMessage[] } | null;
+  // useChat's transport sends the chat id alongside messages; used to count agent sessions.
+  const body = (await req.json().catch(() => null)) as { id?: string; messages?: UIMessage[] } | null;
   const messages = (body?.messages ?? []).slice(-MAX_HISTORY);
   if (messages.length === 0) return Response.json({ error: "No messages" }, { status: 400 });
 
@@ -57,6 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   const tools = buildAiTools(slug, {
     channel: "WEB_AGENT",
     agentClient: "web-chat",
+    session: typeof body?.id === "string" ? body.id.slice(0, 64) : undefined,
     requireConfirmation: !confirmed,
   });
 

@@ -16,6 +16,8 @@ import { appUrl } from "@/lib/urls";
 export type ToolCtx = {
   channel: Channel;
   agentClient?: string;
+  /** Conversation id when the channel has one (web chat), used to count agent sessions. */
+  session?: string;
   /** Set false for UI polling so the live feed isn't flooded. */
   log?: boolean;
   /**
@@ -155,7 +157,7 @@ export async function searchProducts(
       channel: ctx.channel,
       query: input.query,
       resultCount: ranked.length,
-      payload: { tool: "search_products", max_price: input.max_price ?? null, agentClient: ctx.agentClient ?? null },
+      payload: { tool: "search_products", max_price: input.max_price ?? null, agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
   }
 
@@ -179,7 +181,7 @@ export async function getProduct(slug: string, input: z.infer<typeof getProductI
       storeId: store.id,
       type: "VIEW",
       channel: ctx.channel,
-      payload: { tool: "get_product", sku: input.sku, found: Boolean(p), agentClient: ctx.agentClient ?? null },
+      payload: { tool: "get_product", sku: input.sku, found: Boolean(p), agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
   }
 
@@ -219,7 +221,7 @@ export async function createCheckout(
       storeId: store.id,
       type: "POLICY_BLOCKED",
       channel: ctx.channel,
-      payload: { tool: "create_checkout", reason, ...details, agentClient: ctx.agentClient ?? null },
+      payload: { tool: "create_checkout", reason, ...details, agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
     return { ok: false as const, reason };
   };
@@ -276,7 +278,7 @@ export async function createCheckout(
         storeId: store.id,
         type: "VIEW",
         channel: ctx.channel,
-        payload: { tool: "create_checkout", stage: "awaiting_confirmation", total, agentClient: ctx.agentClient ?? null },
+        payload: { tool: "create_checkout", stage: "awaiting_confirmation", total, agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
       });
     }
     return {
@@ -332,7 +334,7 @@ export async function createCheckout(
       storeId: store.id,
       type: "CHECKOUT_CREATED",
       channel: ctx.channel,
-      payload: { tool: "create_checkout", order_ref: order.ref, total, currency: store.currency, items: items.length, agentClient: ctx.agentClient ?? null },
+      payload: { tool: "create_checkout", order_ref: order.ref, total, currency: store.currency, items: items.length, agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
 
     return { ok: true, order_ref: order.ref, items, total, currency: store.currency, approve_url: paypal.approveUrl };
@@ -357,7 +359,7 @@ export async function getOrderStatus(slug: string, input: z.infer<typeof getOrde
       storeId: store.id,
       type: "VIEW",
       channel: ctx.channel,
-      payload: { tool: "get_order_status", order_ref: input.order_ref, found: Boolean(order), agentClient: ctx.agentClient ?? null },
+      payload: { tool: "get_order_status", order_ref: input.order_ref, found: Boolean(order), agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
   }
 
@@ -385,7 +387,7 @@ export async function getStoreInfo(slug: string, ctx: ToolCtx) {
       storeId: store.id,
       type: "VIEW",
       channel: ctx.channel,
-      payload: { tool: "get_store_info", agentClient: ctx.agentClient ?? null },
+      payload: { tool: "get_store_info", agentClient: ctx.agentClient ?? null, session: ctx.session ?? null },
     });
   }
 
