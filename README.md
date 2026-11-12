@@ -90,8 +90,9 @@ flowchart LR
 1. Open the **demo store**: https://openaisle.onrender.com/s/kaveri-handlooms
 2. In the chat, type: *"Find a silk scarf under $50"*, then say *"Yes, buy the first one"* and confirm.
 3. Click **Pay with PayPal** and log in with the sandbox buyer:
-   - **Email:** `<SANDBOX BUYER EMAIL>`
-   - **Password:** `<SANDBOX BUYER PASSWORD>`
+   - **Email:** `sb-e4grz53857844@personal.example.com`
+   - **Password:** `VmG4*0pe`
+   - (PayPal **sandbox** test account with fake funds; no real money.)
 4. Approve the payment. You return to a receipt, and the order appears in the **dashboard** feed.
 5. In the dashboard **Copilot**, type *"Refund the most recent order"* (runs instantly through the PayPal Agent Toolkit, no LLM). Then try a free-form request like *"What did my store earn this week and what are agents asking for that I don't sell?"*.
 
