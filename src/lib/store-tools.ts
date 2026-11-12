@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { logEvent } from "@/lib/events";
 import { formatMoney, fromCents, sumCents, toCents } from "@/lib/money";
 import { createOrder, PayPalError } from "@/lib/paypal";
+import { appUrl } from "@/lib/urls";
 
 /**
  * The 5 buyer tools. Plain async functions shared by the web chat and the MCP server.
@@ -64,7 +65,7 @@ export const getStoreInfoInput = z.object({});
 
 // ---------- Helpers ----------
 
-const APP_URL = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+const APP_URL = () => appUrl();
 
 async function loadStore(slug: string) {
   const store = await getDb().store.findUnique({ where: { slug } });

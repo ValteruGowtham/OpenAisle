@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { ProductCard } from "@/components/shop/product-card";
 import { ShopChatPanel } from "@/components/shop/shop-chat-panel";
 import { CheckoutCancelledToast } from "@/components/shop/checkout-cancelled-toast";
+import { ConnectAiDialog } from "@/components/shop/connect-ai-dialog";
+import { appUrl, mcpUrl, storeUrl } from "@/lib/urls";
 import { getDb } from "@/lib/db";
 import { fromCents, toCents } from "@/lib/money";
 
@@ -32,6 +34,7 @@ export default async function StorePage({ params, searchParams }: Props) {
   const { checkout } = await searchParams;
   const store = await loadStore(slug);
   if (!store) notFound();
+  const base = appUrl();
 
   const products = store.products.map((p) => ({
     sku: p.sku,
@@ -51,9 +54,17 @@ export default async function StorePage({ params, searchParams }: Props) {
           <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-foreground">
             OpenAisle
           </Link>
-          <Badge variant="secondary" className="gap-1.5">
-            <Bot className="size-3.5" /> Agent-ready store
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="hidden gap-1.5 sm:inline-flex">
+              <Bot className="size-3.5" /> Agent-ready store
+            </Badge>
+            <ConnectAiDialog
+              storeName={store.name}
+              slug={store.slug}
+              mcpUrl={mcpUrl(base, store.slug)}
+              llmsUrl={`${storeUrl(base, store.slug)}/llms.txt`}
+            />
+          </div>
         </div>
       </header>
 
