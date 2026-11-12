@@ -92,7 +92,12 @@ async function toPayPalError(res: Response, context: string): Promise<PayPalErro
 
 type FetchOpts = { method?: "GET" | "POST" | "PATCH"; body?: unknown; requestId?: string };
 
-export async function paypalFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
+/** Drop the cached token if it's the one that was rejected (a concurrent call may have refreshed it). */
+function invalidateToken(rejected: string) {
+  if (cachedToken?.value === rejected) cachedToken = null;
+}
+
+export async function paypalFetch<T>(path: string, opts: FetchOpts = {}, isRetry = false): Promise<T> {
   const token = await getAccessToken();
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -107,6 +112,13 @@ export async function paypalFetch<T>(path: string, opts: FetchOpts = {}): Promis
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     cache: "no-store",
   });
+  // Token expired or revoked (e.g. after app permissions changed): fetch a fresh one and retry once.
+  // Safe to repeat: PayPal rejected the request before processing it, and POSTs keep their
+  // PayPal-Request-Id idempotency key.
+  if (res.status === 401 && !isRetry) {
+    invalidateToken(token);
+    return paypalFetch<T>(path, opts, true);
+  }
   if (!res.ok) throw await toPayPalError(res, `${opts.method ?? "GET"} ${path}`);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

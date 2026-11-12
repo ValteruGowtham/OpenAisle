@@ -49,8 +49,13 @@ function getToolkit(): PayPalAgentToolkit {
 
 type ToolkitResult = { ok: boolean; data: Record<string, unknown> };
 
-/** Run one PayPal Agent Toolkit tool by name and parse its JSON result. */
-async function runToolkit(name: string, args: Record<string, unknown>): Promise<ToolkitResult> {
+/**
+ * Run one PayPal Agent Toolkit tool by name and parse its JSON result.
+ * The toolkit caches its access token forever (no expiry handling), so a long-running server would
+ * start failing after ~9h, or immediately after app permissions change and the token is revoked.
+ * On 401 we drop the toolkit instance (and its stale token) and retry once with a fresh one.
+ */
+async function runToolkit(name: string, args: Record<string, unknown>, isRetry = false): Promise<ToolkitResult> {
   const res = await getToolkit().handleToolCall({
     id: `call_${crypto.randomUUID()}`,
     type: "function",
@@ -65,6 +70,11 @@ async function runToolkit(name: string, args: Record<string, unknown>): Promise<
   }
   const failed =
     data.ok === false || "error" in data || (typeof data.status === "number" && data.status >= 400) || data.name === "UNPROCESSABLE_ENTITY";
+  if (failed && data.status === 401 && !isRetry) {
+    console.warn(`[copilot] PayPal 401 on ${name}; refreshing the toolkit token and retrying once`);
+    toolkit = null;
+    return runToolkit(name, args, true);
+  }
   return { ok: !failed, data };
 }
 
