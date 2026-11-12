@@ -32,8 +32,16 @@ export function isRateLimitOrServerError(err: unknown): boolean {
   return status === 429 || (status !== undefined && status >= 500);
 }
 
+/** Groq rejected its own structured output (e.g. truncated JSON → 400 json_validate_failed). */
+function isBadStructuredOutput(err: unknown): boolean {
+  if (NoObjectGeneratedError.isInstance(err)) return true;
+  const inner = RetryError.isInstance(err) ? err.lastError : err;
+  return APICallError.isInstance(inner) && (inner.responseBody ?? "").includes("json_validate_failed");
+}
+
 /**
- * Run `fn` with the Groq model; on 429/5xx (or Groq not configured) retry once with Gemini.
+ * Run `fn` with the Groq model; on 429/5xx, bad structured output, or Groq not configured,
+ * retry once with Gemini.
  */
 export async function withFallback<T>(
   fn: (model: LanguageModel, meta: ModelMeta) => Promise<T>,
@@ -43,8 +51,7 @@ export async function withFallback<T>(
     try {
       return await fn(getModel(), { provider: "groq", modelId: PRIMARY_MODEL_ID, fallback: false });
     } catch (err) {
-      // Also fall back when Groq returned unparseable structured output.
-      if (!isRateLimitOrServerError(err) && !NoObjectGeneratedError.isInstance(err)) throw err;
+      if (!isRateLimitOrServerError(err) && !isBadStructuredOutput(err)) throw err;
       console.warn(
         `[llm] Groq failed (${statusOf(err) ?? "bad output"}), falling back to ${FALLBACK_MODEL_ID}`,
       );

@@ -25,11 +25,12 @@ export const ImportResultSchema = z.object({
     tagline: z.string().describe("Short tagline for the store, under 70 characters."),
     description: z.string().describe("2 sentence store description."),
   }),
-  products: z.array(ImportedProductSchema),
+  // Score + fixes come before products so they're generated first and never truncated away.
   agentReadinessScore: z
     .number()
     .describe("0-100: how well the ORIGINAL raw catalog supports AI shopping agents (clear titles, prices, stock, attributes, images, policies)."),
   fixes: z.array(z.string()).describe("Up to 5 concrete, specific fixes the merchant should make."),
+  products: z.array(ImportedProductSchema),
 });
 
 export type ImportedProduct = z.infer<typeof ImportedProductSchema>;

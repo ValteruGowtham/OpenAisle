@@ -28,6 +28,10 @@ export async function POST(req: Request) {
         prompt: `Store name: ${storeName}\n\nRaw catalog:\n"""\n${rawCatalog}\n"""`,
         output: Output.object({ schema: ImportResultSchema }),
         maxRetries: 1,
+        // gpt-oss is a reasoning model: hidden reasoning shares the output budget, so keep it
+        // low and leave room for ~50 products (Groq free tier caps at 8k tokens/min).
+        maxOutputTokens: 6000,
+        providerOptions: { groq: { reasoningEffort: "low" } },
         abortSignal: AbortSignal.timeout(meta.fallback ? 25_000 : 30_000),
       });
       return { output: result.output, model: meta };
