@@ -9,7 +9,7 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/).
 | **Live demo** | https://openaisle.onrender.com |
 | **Demo store (shop with AI)** | https://openaisle.onrender.com/s/kaveri-handlooms |
 | **Merchant dashboard** | https://openaisle.onrender.com/dashboard/kaveri-handlooms |
-| **Demo video** | `<PASTE YOUTUBE LINK>` |
+| **Demo video** | https://www.youtube.com/watch?v=4S3O6zRSP4g |
 | **License** | MIT |
 
 > Everything runs on the **PayPal sandbox**. No real money moves.
