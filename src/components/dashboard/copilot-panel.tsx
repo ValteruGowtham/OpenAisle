@@ -107,6 +107,10 @@ export function CopilotPanel({ slug }: { slug: string }) {
             <p className="text-sm text-muted-foreground">
               Ask in plain English. The copilot looks up your orders and acts on PayPal for you.
             </p>
+            <p className="text-xs text-muted-foreground">
+              Commands like “Refund OA-1003”, “Add tracking … to OA-1001” or “Invoice …” run instantly on PayPal, no AI
+              needed.
+            </p>
             <div className="flex flex-col items-start gap-2">
               {SUGGESTIONS.map((s) => (
                 <button

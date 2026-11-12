@@ -101,8 +101,129 @@ async function copilotEvent(store: Store, summary: string, payload: Prisma.Input
   await logEvent({ storeId: store.id, type: "COPILOT_ACTION", channel: null, payload: { summary, ...payload } });
 }
 
+// ---------- Copilot actions (plain functions: used by the AI tools AND the no-AI command path) ----------
+
+type OrderRow = NonNullable<Awaited<ReturnType<ReturnType<typeof getDb>["order"]["findFirst"]>>>;
+
+/** Find an order in this store by ref (OA-1001), PayPal capture id or PayPal order id. */
+export async function resolveOrder(store: Store, idOrRef: string): Promise<OrderRow | null> {
+  const id = idOrRef.trim().toUpperCase();
+  return getDb().order.findFirst({
+    where: { storeId: store.id, OR: [{ ref: id }, { captureId: id }, { paypalOrderId: id }] },
+  });
+}
+
+/** Newest paid order in this store. */
+export async function latestPaidOrder(store: Store): Promise<OrderRow | null> {
+  return getDb().order.findFirst({ where: { storeId: store.id, status: "COMPLETED" }, orderBy: { createdAt: "desc" } });
+}
+
+export async function refundOrder(
+  store: Store,
+  order: OrderRow,
+  opts: { amount?: { currency_code: string; value: string }; note_to_payer?: string } = {},
+) {
+  if (order.status === "REFUNDED") return { ok: false as const, order_ref: order.ref, error: `${order.ref} is already refunded.` };
+  if (order.status !== "COMPLETED" || !order.captureId) {
+    return { ok: false as const, order_ref: order.ref, error: `${order.ref} isn't paid yet (status ${order.status}), so there's nothing to refund.` };
+  }
+
+  const { ok, data } = await runToolkit("create_refund", { capture_id: order.captureId, ...opts });
+  if (!ok) {
+    await copilotEvent(store, `Copilot refund failed for ${order.ref}`, { action: "create_refund", ok: false });
+    return { ok: false as const, order_ref: order.ref, error: data };
+  }
+
+  const totalCents = toCents(order.total);
+  const refundedCents = opts.amount?.value ? toCents(opts.amount.value) : totalCents;
+  const full = refundedCents >= totalCents;
+  if (full) await getDb().order.update({ where: { id: order.id }, data: { status: "REFUNDED" } });
+  await copilotEvent(store, `Copilot refunded ${order.ref} · ${formatMoney(refundedCents, store.currency)}${full ? "" : " (partial)"}`, {
+    action: "create_refund",
+    order_ref: order.ref,
+    amount: fromCents(refundedCents),
+    refund_id: String(data.id ?? ""),
+    refund_status: String(data.status ?? ""),
+  });
+  return { ok: true as const, order_ref: order.ref, refund_id: data.id, status: data.status, refunded: fromCents(refundedCents), full_refund: full };
+}
+
+export async function addTracking(
+  store: Store,
+  order: OrderRow,
+  opts: { tracking_number: string; carrier?: string; status?: string },
+) {
+  if (order.status !== "COMPLETED" || !order.captureId) {
+    return { ok: false as const, order_ref: order.ref, error: `${order.ref} isn't paid yet (status ${order.status}); tracking can only be added to paid orders.` };
+  }
+  const carrier = opts.carrier?.toUpperCase();
+  const { ok, data } = await runToolkit("create_shipment_tracking", {
+    order_id: order.paypalOrderId,
+    transaction_id: order.captureId,
+    tracking_number: opts.tracking_number,
+    carrier,
+    status: opts.status ?? "SHIPPED",
+  });
+  if (!ok) {
+    await copilotEvent(store, `Copilot tracking failed for ${order.ref}`, { action: "create_shipment_tracking", ok: false });
+    return { ok: false as const, order_ref: order.ref, error: data };
+  }
+  await getDb().order.update({ where: { id: order.id }, data: { trackingNumber: opts.tracking_number, carrier: carrier ?? null } });
+  await copilotEvent(store, `Copilot added ${carrier ?? ""} tracking ${opts.tracking_number} to ${order.ref}`.replace(/\s+/g, " "), {
+    action: "create_shipment_tracking",
+    order_ref: order.ref,
+    tracking_number: opts.tracking_number,
+    carrier: carrier ?? null,
+  });
+  return { ok: true as const, order_ref: order.ref, tracking_number: opts.tracking_number, carrier: carrier ?? null, status: opts.status ?? "SHIPPED" };
+}
+
+export async function createAndSendInvoice(
+  store: Store,
+  { recipient_email, items, note }: { recipient_email: string; items: { name: string; quantity: number; unit_price: number }[]; note?: string },
+) {
+  const lines = items.map((i) => ({ ...i, unitCents: toCents(i.unit_price) }));
+  const totalCents = sumCents(lines.map((l) => l.unitCents * l.quantity));
+
+  const created = await runToolkit("create_invoice", {
+    currency_code: store.currency,
+    invoicer_business_name: store.name,
+    note: note ?? `Thank you for shopping with ${store.name}.`,
+    primary_recipients: [{ billing_info: { email_address: recipient_email } }],
+    items: lines.map((l) => ({
+      name: l.name,
+      quantity: String(l.quantity),
+      unit_amount: { currency_code: store.currency, value: fromCents(l.unitCents) },
+    })),
+  });
+  if (!created.ok) {
+    await copilotEvent(store, `Copilot invoice failed for ${recipient_email}`, { action: "create_invoice", ok: false });
+    return { ok: false as const, step: "create_invoice", error: created.data };
+  }
+
+  const href = String(created.data.href ?? "");
+  const invoiceId = String(created.data.id ?? href.split("/").pop() ?? "");
+  const sent = await runToolkit("send_invoice", { invoice_id: invoiceId, send_to_recipient: true });
+
+  await copilotEvent(
+    store,
+    sent.ok
+      ? `Copilot invoiced ${recipient_email} · ${formatMoney(totalCents, store.currency)}`
+      : `Copilot created invoice for ${recipient_email} (sending failed)`,
+    { action: "create_and_send_invoice", invoice_id: invoiceId, total: fromCents(totalCents), recipient: recipient_email, sent: sent.ok },
+  );
+  return {
+    ok: sent.ok,
+    invoice_id: invoiceId,
+    total: fromCents(totalCents),
+    currency: store.currency,
+    recipient: recipient_email,
+    sent: sent.ok,
+    ...(sent.ok ? {} : { error: sent.data }),
+  };
+}
+
 export function buildCopilotTools(store: Store) {
-  const money = (cents: number) => formatMoney(cents, store.currency);
 
   const tools = {
     // ---------- Custom store tools ----------
@@ -182,29 +303,7 @@ export function buildCopilotTools(store: Store) {
       execute: async (args) => {
         const order = await orderByCapture(store.id, args.capture_id);
         if (!order) return { ok: false, error: "That capture id doesn't belong to an order in this store." };
-        if (order.status === "REFUNDED") return { ok: false, error: `${order.ref} is already refunded.` };
-
-        const { ok, data } = await runToolkit("create_refund", args);
-        if (!ok) {
-          await copilotEvent(store, `Copilot refund failed for ${order.ref}`, { action: "create_refund", ok: false });
-          return { ok, order_ref: order.ref, error: data };
-        }
-
-        const totalCents = toCents(order.total);
-        const refundedCents = args.amount?.value ? toCents(args.amount.value) : totalCents;
-        const full = refundedCents >= totalCents;
-        await getDb().order.update({
-          where: { id: order.id },
-          data: full ? { status: "REFUNDED" } : {},
-        });
-        await copilotEvent(store, `Copilot refunded ${order.ref} · ${money(refundedCents)}${full ? "" : " (partial)"}`, {
-          action: "create_refund",
-          order_ref: order.ref,
-          amount: fromCents(refundedCents),
-          refund_id: String(data.id ?? ""),
-          refund_status: String(data.status ?? ""),
-        });
-        return { ok, order_ref: order.ref, refund_id: data.id, status: data.status, refunded: fromCents(refundedCents), full_refund: full };
+        return refundOrder(store, order, { amount: args.amount, note_to_payer: args.note_to_payer });
       },
     }),
 
@@ -220,30 +319,7 @@ export function buildCopilotTools(store: Store) {
       execute: async (args) => {
         const order = await orderByCapture(store.id, args.transaction_id);
         if (!order) return { ok: false, error: "That transaction id doesn't belong to a paid order in this store." };
-
-        const { ok, data } = await runToolkit("create_shipment_tracking", {
-          ...args,
-          order_id: args.order_id ?? order.paypalOrderId,
-          carrier: args.carrier?.toUpperCase(),
-          status: args.status ?? "SHIPPED",
-        });
-        if (!ok) {
-          await copilotEvent(store, `Copilot tracking failed for ${order.ref}`, { action: "create_shipment_tracking", ok: false });
-          return { ok, order_ref: order.ref, error: data };
-        }
-
-        const carrier = args.carrier?.toUpperCase() ?? null;
-        await getDb().order.update({
-          where: { id: order.id },
-          data: { trackingNumber: args.tracking_number, carrier },
-        });
-        await copilotEvent(store, `Copilot added ${carrier ?? ""} tracking ${args.tracking_number} to ${order.ref}`.replace(/\s+/g, " "), {
-          action: "create_shipment_tracking",
-          order_ref: order.ref,
-          tracking_number: args.tracking_number,
-          carrier,
-        });
-        return { ok, order_ref: order.ref, tracking_number: args.tracking_number, carrier, status: args.status ?? "SHIPPED" };
+        return addTracking(store, order, { tracking_number: args.tracking_number, carrier: args.carrier, status: args.status });
       },
     }),
 
@@ -264,47 +340,7 @@ export function buildCopilotTools(store: Store) {
           .max(20),
         note: z.string().max(500).optional(),
       }),
-      execute: async ({ recipient_email, items, note }) => {
-        const lines = items.map((i) => ({ ...i, unitCents: toCents(i.unit_price) }));
-        const totalCents = sumCents(lines.map((l) => l.unitCents * l.quantity));
-
-        const created = await runToolkit("create_invoice", {
-          currency_code: store.currency,
-          invoicer_business_name: store.name,
-          note: note ?? `Thank you for shopping with ${store.name}.`,
-          primary_recipients: [{ billing_info: { email_address: recipient_email } }],
-          items: lines.map((l) => ({
-            name: l.name,
-            quantity: String(l.quantity),
-            unit_amount: { currency_code: store.currency, value: fromCents(l.unitCents) },
-          })),
-        });
-        if (!created.ok) {
-          await copilotEvent(store, `Copilot invoice failed for ${recipient_email}`, { action: "create_invoice", ok: false });
-          return { ok: false, step: "create_invoice", error: created.data };
-        }
-
-        const href = String(created.data.href ?? "");
-        const invoiceId = String(created.data.id ?? href.split("/").pop() ?? "");
-        const sent = await runToolkit("send_invoice", { invoice_id: invoiceId, send_to_recipient: true });
-
-        await copilotEvent(
-          store,
-          sent.ok
-            ? `Copilot invoiced ${recipient_email} · ${money(totalCents)}`
-            : `Copilot created invoice for ${recipient_email} (sending failed)`,
-          { action: "create_and_send_invoice", invoice_id: invoiceId, total: fromCents(totalCents), recipient: recipient_email, sent: sent.ok },
-        );
-        return {
-          ok: sent.ok,
-          invoice_id: invoiceId,
-          total: fromCents(totalCents),
-          currency: store.currency,
-          recipient: recipient_email,
-          sent: sent.ok,
-          ...(sent.ok ? {} : { error: sent.data }),
-        };
-      },
+      execute: (input) => createAndSendInvoice(store, input),
     }),
   };
 
