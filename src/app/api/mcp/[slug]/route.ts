@@ -1,6 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { getDb } from "@/lib/db";
+import { clientIp, hit, rateLimit } from "@/lib/rate-limit";
 import {
   createCheckout,
   createCheckoutInput,
@@ -69,7 +70,7 @@ function asError(err: unknown) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-function registerStoreTools(server: McpServer, store: Store) {
+function registerStoreTools(server: McpServer, store: Store, ip: string) {
   const ctxFor = (req: Request | undefined): ToolCtx => ({ channel: "MCP", agentClient: clientName(server, req) });
   const run = async (fn: () => Promise<unknown>) => {
     try {
@@ -109,7 +110,16 @@ function registerStoreTools(server: McpServer, store: Store) {
       inputSchema: createCheckoutInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    (input, ctx) => run(() => createCheckout(store.slug, input, ctxFor(ctx.http?.req))),
+    (input, ctx) => {
+      // Max 10 PayPal checkouts per IP per hour, so a script can't flood the sandbox with orders.
+      if (!hit("mcp-checkout", ip, 10, 60 * 60_000).ok) {
+        return {
+          content: [{ type: "text" as const, text: "Checkout limit reached for this connection (10 per hour). Please try again later." }],
+          isError: true,
+        };
+      }
+      return run(() => createCheckout(store.slug, input, ctxFor(ctx.http?.req)));
+    },
   );
 
   server.registerTool(
@@ -136,6 +146,8 @@ function registerStoreTools(server: McpServer, store: Store) {
 }
 
 async function handle(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const limited = rateLimit(req, "mcp", 60);
+  if (limited) return limited;
   const { slug } = await params;
   const store = await getDb().store.findUnique({
     where: { slug },
@@ -148,7 +160,7 @@ async function handle(req: Request, { params }: { params: Promise<{ slug: string
     );
   }
 
-  const handler = createMcpHandler((server) => registerStoreTools(server, store), {
+  const handler = createMcpHandler((server) => registerStoreTools(server, store, clientIp(req)), {
     serverInfo: { name: `openaisle-${store.slug}`, version: "1.0.0" },
     instructions:
       `You are connected to ${store.name}${store.tagline ? ` (${store.tagline})` : ""} via OpenAisle. ` +

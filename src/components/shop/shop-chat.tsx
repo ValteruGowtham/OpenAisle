@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StoreTools } from "@/lib/store-tools";
+import { chatErrorMessage } from "@/lib/chat-errors";
 import { cn } from "@/lib/utils";
 import { CheckoutCard, OrderSummaryCard } from "./checkout-card";
 import { ChatProductCard } from "./chat-product-card";
@@ -124,7 +125,7 @@ export function ShopChat({ slug, storeName }: { slug: string; storeName: string 
         {error && (
           <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm">
             <span className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
-              <AlertCircle className="size-4 shrink-0" /> AI is busy, please retry in a moment.
+              <AlertCircle className="size-4 shrink-0" /> {chatErrorMessage(error)}
             </span>
             <Button size="sm" variant="outline" onClick={() => regenerate()}>
               <RotateCcw /> Retry

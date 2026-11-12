@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateText, Output } from "ai";
 import { ImportRequestSchema, ImportResultSchema, normalizeImport } from "@/lib/catalog";
 import { friendlyAiError, withFallback } from "@/lib/llm";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -11,6 +12,8 @@ If stock is missing use 5; "sold out" = 0. Write factual agentSummary lines (no 
 Score agentReadinessScore on the ORIGINAL input (missing prices, stock, sizes, materials, images, policies all lower it) and give up to 5 specific fixes.`;
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, "import", 4);
+  if (limited) return limited;
   const parsed = ImportRequestSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

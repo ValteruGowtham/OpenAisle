@@ -11,6 +11,7 @@ import { buildCopilotTools } from "@/lib/copilot";
 import { runDirectCommand, type DirectResult } from "@/lib/copilot-commands";
 import { getDb } from "@/lib/db";
 import { friendlyAiError, getChatModel } from "@/lib/llm";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -51,6 +52,8 @@ function directResponse(r: DirectResult) {
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const limited = rateLimit(req, "copilot", 12);
+  if (limited) return limited;
   const { slug } = await params;
   const store = await getDb().store.findUnique({
     where: { slug },

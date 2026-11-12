@@ -9,6 +9,7 @@ import {
 import { getDb } from "@/lib/db";
 import { friendlyAiError, getChatModel } from "@/lib/llm";
 import { buildAiTools } from "@/lib/store-tools";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -39,6 +40,8 @@ function systemPrompt(store: { name: string; currency: string; tagline: string |
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const limited = rateLimit(req, "chat", 12);
+  if (limited) return limited;
   const { slug } = await params;
   const store = await getDb().store.findUnique({
     where: { slug },
@@ -54,7 +57,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   // Hard guard for "confirm items and total before create_checkout". The tool stays available
   // (hiding it makes the model call it anyway, and Groq rejects that with a 400); until the buyer's
   // latest message is an explicit yes, it only returns a DB-priced preview and creates nothing.
-  const confirmed = AFFIRMATIVE.test(lastUserText(messages));
+  // A yes must be a short reply ("yes please", "ok go ahead"), so "ok what about blue?" doesn't count.
+  const reply = lastUserText(messages);
+  const confirmed = reply.split(/\s+/).filter(Boolean).length <= 6 && AFFIRMATIVE.test(reply);
   const tools = buildAiTools(slug, {
     channel: "WEB_AGENT",
     agentClient: "web-chat",
